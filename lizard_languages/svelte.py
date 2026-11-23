@@ -167,23 +167,30 @@ class _Units:
         context.global_pseudo_function = self.module
 
 
-class _Statements(ImpliedSemicolons):
+class _Statements:
     """The places where a statement ends without a ';'. The end of a script
     ends its last statement, as a ';' does, so the code after it cannot
-    continue it."""
+    continue it.
+
+    read(tokens, context) passes each token on, in order.  While a token
+    is passed on, before_token tells whether a statement ends before it."""
     # pylint: disable=R0903
 
-    def __init__(self, context):
-        super().__init__(context)
-        self._script_ends = 0   # the script ends read so far
+    __slots__ = ('before_token',)
 
-    def before(self, token):
-        script_ends = self._context.script_ends
-        if self._script_ends == script_ends:
-            return super().before(token)
-        self._script_ends = script_ends
-        super().before(token)
-        return True
+    def __init__(self):
+        self.before_token = False
+
+    def read(self, tokens, context):
+        finder = ImpliedSemicolons()
+        script_ends = 0         # the script ends read so far
+        for token in finder.read(tokens, context):
+            if script_ends == context.script_ends:
+                self.before_token = finder.before_token
+            else:
+                script_ends = context.script_ends
+                self.before_token = True
+            yield token
 
 
 def _marks(code):
@@ -582,7 +589,13 @@ class SvelteReader(VueReader):
 
     ext = ['svelte']
     language_names = ['svelte']
-    implied_semicolons = _Statements
+
+    def implied_semicolons(self, tokens):
+        """As in the TypeScript reader, with the finder of this reader."""
+        if self._implied_semicolons is None:
+            self._implied_semicolons = _Statements()
+            tokens = self._implied_semicolons.read(tokens, self.context)
+        return tokens, self._implied_semicolons
 
     @staticmethod
     def markup_tokens(source_code, start, end):
